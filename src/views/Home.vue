@@ -16,15 +16,19 @@
           alt="Face detection animation"
         >
 
-        <video
+        <div
           v-show="videoStarted"
-          id="video"
-          class="mx-auto h-72 w-auto"
-          autoplay
-          muted
         >
-        </video>
+          <video
+            id="video"
+            autoplay
+            muted
+          >
+          </video>
+          <canvas id="canvas"></canvas>
+        </div>
       </div>
+      <br>
 
       <div>
         <button
@@ -39,25 +43,73 @@
 </template>
 
 <script>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+const faceapi = require('face-api.js')
 
 export default {
   name: 'Home',
   setup () {
     var videoStarted = ref(false)
 
-    function startVideo () {
+    function loadModels () {
+      return Promise.all([
+        faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
+        faceapi.nets.faceLandmark68Net.loadFromUri('/models'),
+        faceapi.nets.faceRecognitionNet.loadFromUri('/models'),
+        faceapi.nets.faceExpressionNet.loadFromUri('/models')
+      ])
+    }
+
+    async function startVideo () {
       videoStarted.value = !videoStarted.value
       const video = document.getElementById('video')
-      navigator.getUserMedia(
-        { video: {} },
-        (stream) => {
-          video.srcObject = stream
-        },
-        err => console.log(err)
-      )
+
+      await loadModels()
+        .then(() => {
+          navigator.getUserMedia(
+            { video: {} },
+            (stream) => {
+              video.srcObject = stream
+            },
+            err => console.log(err)
+          )
+        })
+
+      video.addEventListener('playing', () => {
+        // const canvas = faceapi.createCanvasFromMedia(video)
+        const canvas = document.getElementById('canvas')
+        // document.body.append(canvas)
+        const canvasSize = {
+          width: video.offsetWidth,
+          height: video.offsetHeight
+        }
+
+        canvas.width = canvasSize.width
+        canvas.height = canvasSize.height
+
+        canvas.style.top = `${(canvasSize.height / 2) - 12}px`
+
+        faceapi.matchDimensions(canvas, canvasSize)
+
+        setInterval(async () => {
+          const detections = await faceapi.detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceExpressions()
+
+          const resizedDetections = faceapi.resizeResults(detections, canvasSize)
+          canvas.getContext('2d').clearRect(0, 0, canvasSize.width, canvasSize.height)
+
+          faceapi.draw.drawDetections(canvas, resizedDetections)
+          faceapi.draw.drawFaceLandmarks(canvas, resizedDetections)
+          faceapi.draw.drawFaceExpressions(canvas, resizedDetections)
+        }, 100)
+      })
     }
-    return { videoStarted, startVideo }
+
+    onMounted(() => {
+      loadModels()
+    })
+    return { videoStarted, startVideo, loadModels }
   }
 }
 </script>
@@ -65,5 +117,16 @@ export default {
 <style scoped>
   .background-color {
     background-color: #edf4f8;
+  }
+
+  /* #video {
+    -webkit-transform: scaleX(-1);
+    transform: scaleX(-1);
+  } */
+
+  #canvas {
+    border: 1px solid red;
+    /* max-width: 100vw; */
+    position: absolute;
   }
 </style>
